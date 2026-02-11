@@ -1,10 +1,19 @@
-import { Stack } from 'expo-router';
+// app/_layout.jsx
+import "react-native-gesture-handler";
+import React from "react";
+import { Stack } from "expo-router";
+import { AuthProvider } from "../context/AuthContext";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 
-export default function Layout() {
+export default function RootLayout() {
   return (
-    <Stack>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-    </Stack>
-  )
+    <AuthProvider>
+      <KeyboardProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          {/* Drawer配下（ホームとチャット）はここにまとめる */}
+          <Stack.Screen name="(drawer)" />
+        </Stack>
+      </KeyboardProvider>
+    </AuthProvider>
+  );
 }
-

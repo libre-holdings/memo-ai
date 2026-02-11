@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "めもらAI",
+    "slug": "memora-ai",
+    "version": "1.0.0",
+    "plugins": [
+      "expo-router",
+      "react-native-iap",
+      "@react-native-community/datetimepicker",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.801835173003-et99uoirjm06se21vr2saaa8h9uqedic"
+        }
+      ]
+    ],
+    "android": {
+      "package": "com.libre.dev.memoraai"
+    },
+    "ios": {
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "bundleIdentifier": "com.libre.dev.memoraai",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f77aa4c0-8720-4b45-aedd-ba92841d7ae9"
+      }
+    }
+  }
+}
