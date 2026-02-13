@@ -1,29 +1,15 @@
 // src/routes/chatMessages.js
 const express = require("express");
 
-module.exports = function createChatMessagesRouter({
-  admin,
-  db,
-  requireAuth,
-  // generateTitleFromText, // ✅ もう使わない（ChatGPTっぽいタイトル生成を封じる）
-}) {
+module.exports = function createChatMessagesRouter({ admin, db, requireAuth }) {
   const router = express.Router();
 
-  // タイトルに使う最大文字数（必要に応じて調整）
   const MAX_TITLE_LEN = 40;
 
   function makeTitleFromFirstMessage(text) {
-    // 先頭メッセージをそのままタイトルにするが、改行や連続空白は整形して短くする
-    const t = String(text || "")
-      .trim()
-      .replace(/\s+/g, " "); // 改行/タブ含む連続空白を1スペースへ
-
+    const t = String(text || "").trim().replace(/\s+/g, " ");
     if (!t) return "新規メモ";
-
-    // 長い場合は切る（UI都合）
-    if (t.length > MAX_TITLE_LEN) {
-      return t.slice(0, MAX_TITLE_LEN) + "…";
-    }
+    if (t.length > MAX_TITLE_LEN) return t.slice(0, MAX_TITLE_LEN) + "…";
     return t;
   }
 
@@ -35,40 +21,70 @@ module.exports = function createChatMessagesRouter({
       return res.status(400).json({ error: "content_required" });
     }
 
+    const trimmed = content.trim();
+    const chatRef = db.collection("chats").doc(chatId);
+
+    // ★ message ID を先に確保（レスポンスで返す・クライアントと整合させる）
+    const msgRef = chatRef.collection("messages").doc();
+    const msgId = msgRef.id;
+
+    const startMs = Date.now();
+
     try {
-      const chatRef = db.collection("chats").doc(chatId);
-      const snap = await chatRef.get();
-      if (!snap.exists) return res.status(404).json({ error: "chat_not_found" });
-
-      const chat = snap.data();
-      if (chat.ownerUid !== req.uid) {
-        return res.status(403).json({ error: "forbidden" });
-      }
-
       const now = admin.firestore.FieldValue.serverTimestamp();
-      const trimmed = content.trim();
 
-      const msgRef = await chatRef.collection("messages").add({
-        role: "user",
-        content: trimmed,
-        createdAt: now,
-        uid: req.uid,
+      let nextTitle = null;
+      let shouldSetTitle = false;
+
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(chatRef);
+        if (!snap.exists) {
+          const err = new Error("chat_not_found");
+          err.status = 404;
+          throw err;
+        }
+
+        const chat = snap.data();
+        if (chat.ownerUid !== req.uid) {
+          const err = new Error("forbidden");
+          err.status = 403;
+          throw err;
+        }
+
+        shouldSetTitle = !chat.title || chat.title === "新規メモ";
+        if (shouldSetTitle) nextTitle = makeTitleFromFirstMessage(trimmed);
+
+        tx.set(msgRef, {
+          role: "user",
+          content: trimmed,
+          createdAt: now,
+          uid: req.uid,
+        });
+
+        const update = { updatedAt: now };
+        if (shouldSetTitle) update.title = nextTitle;
+
+        tx.update(chatRef, update);
       });
 
-      // ✅ 初回タイトル生成：最初のトーク内容をそのままタイトルにする
-      // 既にタイトルがある場合は触らない（「新規メモ」や空なら更新）
-      const shouldSetTitle = !chat.title || chat.title === "新規メモ";
-      if (shouldSetTitle) {
-        const title = makeTitleFromFirstMessage(trimmed);
-        await chatRef.update({ title, updatedAt: now });
-      } else {
-        await chatRef.update({ updatedAt: now });
-      }
+      const tookMs = Date.now() - startMs;
+      console.log("[POST /chats/:chatId/messages]", { tookMs, chatId, msgId, shouldSetTitle });
 
-      return res.status(201).json({ id: msgRef.id });
+      // ✅ 返り値を改善：クライアントは再GET不要（最低限messageを返す）
+      // createdAt は serverTimestamp なのでこの時点では未確定。必要なら後述の options を参照。
+      return res.status(201).json({
+        message: {
+          id: msgId,
+          role: "user",
+          content: trimmed,
+          // createdAt は未確定なので返さない or null にする
+        },
+        chat: shouldSetTitle ? { id: chatId, title: nextTitle } : { id: chatId },
+      });
     } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: "failed_to_create_message" });
+      const status = e.status || 500;
+      if (status === 500) console.error(e);
+      return res.status(status).json({ error: e.message || "failed_to_create_message" });
     }
   });
 

@@ -23,7 +23,7 @@ import { usePathname, router } from "expo-router";
 import { auth } from "../firebase/config";
 import { BlurView } from "expo-blur";
 
-const API_BASE = "http://192.168.0.103:8000"; // index/chat と統一（実機OK）
+const API_BASE = "https://memo-ai-c3hh.onrender.com"|| "http://192.168.0.103:8000";
 
 const BG = "#1e262a";
 const FG = "#E8EEF6";

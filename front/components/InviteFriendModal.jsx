@@ -11,8 +11,7 @@ import {
 } from "react-native";
 import { auth } from "../firebase/config";
 
-const API_BASE = "http://192.168.0.103:8000";
-
+const API_BASE = "https://memo-ai-c3hh.onrender.com"|| "http://192.168.0.103:8000";
 async function getAuthHeader() {
   const u = auth.currentUser;
   if (!u) throw new Error("Not signed in");

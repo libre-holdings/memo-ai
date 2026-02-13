@@ -5,8 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { auth } from "../firebase/config";
 import { router } from "expo-router";
 
-const API_BASE = "http://192.168.0.103:8000";
-
+const API_BASE = "https://memo-ai-c3hh.onrender.com"|| "http://192.168.0.103:8000";
 // ========== Auth Helpers ==========
 async function getAuthHeader() {
   const u = auth.currentUser;

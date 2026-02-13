@@ -13,8 +13,7 @@ import Bubble from "../../../components/Bubble";
 import TopBar from "../../../components/TopBar";
 import InviteFriendModal from "../../../components/InviteFriendModal";
 
-const API_BASE = "http://192.168.0.103:8000";
-
+const API_BASE = "https://memo-ai-c3hh.onrender.com"|| "http://192.168.0.103:8000";
 // ========== Auth Helpers ==========
 async function getAuthHeader() {
   const u = auth.currentUser;
@@ -247,7 +246,7 @@ export default function ChatScreen() {
 
     try {
       await sendMessage(content);
-      await fetchMessages();
+      // await fetchMessages();
 
 
       // ✅ title が「未確定（新規メモ）」の時だけ meta を再取得して更新
