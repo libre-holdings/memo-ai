@@ -16,6 +16,16 @@ const PORT = 8000;
 
 app.use(express.json());
 
+
+// ✅ ここに入れる（全ルート共通）
+app.use((req, res, next) => {
+  const t0 = Date.now();
+  res.on("finish", () => {
+    console.log("[http]", req.method, req.originalUrl, res.statusCode, Date.now() - t0, "ms");
+  });
+  next();
+});
+
 /**
  * CORS:
  * - Expo/React Native は origin が付かないことがある（null/undefined）
