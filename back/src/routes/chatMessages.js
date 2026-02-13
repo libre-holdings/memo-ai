@@ -1,27 +1,30 @@
 // src/routes/chatMessages.js
 const express = require("express");
 
-module.exports = function createChatMessagesRouter({ admin, db, requireAuth }) {
+module.exports = function createChatMessagesRouter({
+  admin,
+  db,
+  requireAuth,
+  // generateTitleFromText, // ✅ もう使わない（ChatGPTっぽいタイトル生成を封じる）
+}) {
   const router = express.Router();
 
+  // タイトルに使う最大文字数（必要に応じて調整）
   const MAX_TITLE_LEN = 40;
-  const MAX_LAST_LEN = 60; // 一覧プレビュー用（好みで調整）
-
-  function normalizeOneLine(text) {
-    return String(text || "")
-      .trim()
-      .replace(/\s+/g, " ");
-  }
-
-  function clip(text, max) {
-    if (!text) return "";
-    return text.length > max ? text.slice(0, max) + "…" : text;
-  }
 
   function makeTitleFromFirstMessage(text) {
-    const t = normalizeOneLine(text);
+    // 先頭メッセージをそのままタイトルにするが、改行や連続空白は整形して短くする
+    const t = String(text || "")
+      .trim()
+      .replace(/\s+/g, " "); // 改行/タブ含む連続空白を1スペースへ
+
     if (!t) return "新規メモ";
-    return clip(t, MAX_TITLE_LEN);
+
+    // 長い場合は切る（UI都合）
+    if (t.length > MAX_TITLE_LEN) {
+      return t.slice(0, MAX_TITLE_LEN) + "…";
+    }
+    return t;
   }
 
   router.post("/chats/:chatId/messages", requireAuth, async (req, res) => {
@@ -32,97 +35,46 @@ module.exports = function createChatMessagesRouter({ admin, db, requireAuth }) {
       return res.status(400).json({ error: "content_required" });
     }
   
-    const trimmed = content.trim();
-    const oneLine = normalizeOneLine(trimmed);
-    const lastMessage = clip(oneLine, MAX_LAST_LEN);
-  
-    const chatRef = db.collection("chats").doc(chatId);
-    const msgRef = chatRef.collection("messages").doc();
-    const msgId = msgRef.id;
-  
-    const t0 = Date.now();
-  
     try {
+      const chatRef = db.collection("chats").doc(chatId);
+      const snap = await chatRef.get();
+      if (!snap.exists) return res.status(404).json({ error: "chat_not_found" });
+  
+      const chat = snap.data();
+      if (chat.ownerUid !== req.uid) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+  
       const now = admin.firestore.FieldValue.serverTimestamp();
+      const trimmed = content.trim();
   
-      let nextTitle = null;
-      let shouldSetTitle = false;
-  
-      // tx 内訳計測用
-      let txGetMs = null;
-      let txBodyMs = null;
-  
-      const tTxStart = Date.now();
-      await db.runTransaction(async (tx) => {
-        const tGet0 = Date.now();
-        const snap = await tx.get(chatRef);
-        txGetMs = Date.now() - tGet0;
-  
-        if (!snap.exists) {
-          const err = new Error("chat_not_found");
-          err.status = 404;
-          throw err;
-        }
-  
-        const chat = snap.data();
-        if (chat.ownerUid !== req.uid) {
-          const err = new Error("forbidden");
-          err.status = 403;
-          throw err;
-        }
-  
-        shouldSetTitle = !chat.title || chat.title === "新規メモ";
-        if (shouldSetTitle) nextTitle = makeTitleFromFirstMessage(oneLine);
-  
-        tx.set(msgRef, {
-          role: "user",
-          content: trimmed,
-          createdAt: now,
-          uid: req.uid,
-        });
-  
-        const update = {
-          updatedAt: now,
-          lastAt: now,
-          lastMessage,
-        };
-        if (shouldSetTitle) update.title = nextTitle;
-  
-        tx.update(chatRef, update);
-  
-        txBodyMs = Date.now() - tGet0; // tx.get後〜tx内処理終わりまで（参考）
-      });
-      const txTotalMs = Date.now() - tTxStart;
-  
-      const totalMs = Date.now() - t0;
-      console.log("[perf-srv] POST /messages", {
-        totalMs,
-        txTotalMs,
-        txGetMs,
-        txBodyMs,
-        chatId,
-        msgId,
-        shouldSetTitle,
+      // message create
+      const msgRef = await chatRef.collection("messages").add({
+        role: "user",
+        content: trimmed,
+        createdAt: now,
+        uid: req.uid,
       });
   
-      return res.status(201).json({
-        message: { id: msgId, role: "user", content: trimmed },
-        chat: {
-          id: chatId,
-          ...(shouldSetTitle ? { title: nextTitle } : {}),
-          lastMessage,
-        },
-      });
+      // chat update payload
+      const updates = {
+        updatedAt: now,
+        lastAt: now,
+        lastMessage: trimmed, // 長すぎるならここで切るのもアリ
+      };
+  
+      // 初回タイトル生成
+      const shouldSetTitle = !chat.title || chat.title === "新規メモ";
+      if (shouldSetTitle) {
+        updates.title = makeTitleFromFirstMessage(trimmed);
+      }
+  
+      await chatRef.update(updates);
+  
+      return res.status(201).json({ id: msgRef.id });
     } catch (e) {
-      const status = e.status || 500;
-      if (status === 500) console.error(e);
-      console.log("[perf-srv] POST /messages error", {
-        status,
-        totalMs: Date.now() - t0,
-        chatId,
-        msgId,
-      });
-      return res.status(status).json({ error: e.message || "failed_to_create_message" });
+      console.error(e);
+      return res.status(500).json({ error: "failed_to_create_message" });
     }
   });
   

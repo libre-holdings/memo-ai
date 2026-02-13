@@ -163,9 +163,13 @@ app.get("/chats", requireAuth, async (req, res) => {
       return {
         id: d.id,
         title: data.title || "",
+        lastMessage: data.lastMessage || "",
         favorite: !!data.favorite,
         favoriteAt: data.favoriteAt?.toDate
           ? data.favoriteAt.toDate().toISOString()
+          : null,
+          lastAt: data.lastAt?.toDate
+          ? data.lastAt.toDate().toISOString()
           : null,
         createdAt: data.createdAt?.toDate
           ? data.createdAt.toDate().toISOString()
@@ -347,6 +351,8 @@ app.get("/chats/:chatId", requireAuth, async (req, res) => {
  */
 app.get("/chats/:chatId/messages", requireAuth, async (req, res) => {
   const { chatId } = req.params;
+  const limit = Math.min(Number(req.query.limit) || 30, 100); // 30推奨、最大100
+  const cursor = req.query.cursor || null; // 前回の最後のdocId
 
   try {
     const chatRef = db.collection("chats").doc(chatId);
@@ -358,30 +364,39 @@ app.get("/chats/:chatId/messages", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "forbidden" });
     }
 
-    const msgSnap = await chatRef
+    let q = chatRef
       .collection("messages")
-      .orderBy("createdAt", "asc")
-      .limit(500)
-      .get();
+      .orderBy("createdAt", "desc")
+      .limit(limit);
 
-    const messages = msgSnap.docs.map((d) => {
+    if (cursor) {
+      const cursorDoc = await chatRef.collection("messages").doc(cursor).get();
+      if (cursorDoc.exists) {
+        q = q.startAfter(cursorDoc);
+      }
+    }
+
+    const msgSnap = await q.get();
+
+    const items = msgSnap.docs.map((d) => {
       const data = d.data() || {};
       return {
         id: d.id,
-        role: data.role || "user",
         content: data.content || "",
-        createdAt: data.createdAt?.toDate
-          ? data.createdAt.toDate().toISOString()
-          : null,
+        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : null,
       };
     });
 
-    return res.json(messages);
+    const nextCursor =
+      msgSnap.docs.length === limit ? msgSnap.docs[msgSnap.docs.length - 1].id : null;
+
+    return res.json({ items, nextCursor });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "failed_to_fetch_messages" });
   }
 });
+
 
 app.use(createFriendsRouter({ admin, db, requireAuth }));
 
